@@ -60,6 +60,23 @@ export default function App() {
   const [issueMessage, setIssueMessage] = useState('');
   const [issueSeverity, setIssueSeverity] = useState<'low' | 'medium' | 'high'>('low');
 
+  const handleSignIn = async () => {
+    try {
+      await signInWithGoogle();
+    } catch (error: any) {
+      console.error("Auth Error:", error);
+      if (error.code === 'auth/unauthorized-domain') {
+        toast.error("Domain unauthorized. Please add this URL to your Firebase Console under Auth > Settings > Authorized Domains.");
+      } else if (error.code === 'auth/popup-blocked') {
+        toast.error("Popup blocked. Please allow popups for this site.");
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        toast.info("Sign-in cancelled.");
+      } else {
+        toast.error("Authentication failed: " + error.message);
+      }
+    }
+  };
+
   const monthId = format(new Date(), 'yyyy-MM');
 
   useEffect(() => {
@@ -203,7 +220,7 @@ export default function App() {
                 <h1 className="text-xl font-semibold tracking-tight text-zinc-900">VaultGuard Access</h1>
                 <p className="text-xs text-zinc-500 leading-relaxed uppercase tracking-widest font-bold">Authorized Personnel Only</p>
              </div>
-             <Button onClick={signInWithGoogle} className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-medium rounded h-11">
+             <Button onClick={handleSignIn} className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-medium rounded h-11">
                 Authenticate with Google
              </Button>
           </div>
