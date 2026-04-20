@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Catch-all deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 3. Primitives & Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // Validation Blueprints
+    function isValidActionLog(log) {
+      return log.keys().hasAll(['timestamp', 'transporterName', 'signature']) &&
+             log.keys().size() == 3 &&
+             log.timestamp == request.time &&
+             log.transporterName is string &&
+             log.transporterName.size() <= 100 &&
+             log.signature is string &&
+             log.signature.size() <= 200000; // Signatures can be large base64 strings
+    }
+
+    function isValidDriveRecord(data) {
+      return data.keys().hasAll(['status', 'month']) &&
+             data.status in ['offsite', 'onsite', 'pending'] &&
+             data.month is string &&
+             data.month.size() <= 50;
+    }
+
+    function isValidIssue(data) {
+      return data.keys().hasAll(['timestamp', 'reporter', 'message', 'severity']) &&
+             data.keys().size() == 4 &&
+             data.timestamp == request.time &&
+             data.reporter is string &&
+             data.reporter.size() <= 100 &&
+             data.message is string &&
+             data.message.size() <= 1000 &&
+             data.severity in ['low', 'medium', 'high'];
+    }
+
+    // 4. Paths
+    match /driveRecords/{monthId} {
+      allow read: if isSignedIn();
+      
+      allow create: if isEmailVerified() && 
+                      isValidId(monthId) && 
+                      isValidDriveRecord(incoming());
+
+      allow update: if isEmailVerified() && 
+                      isValidId(monthId) && (
+                        // Action: Check-In
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'checkIn']) && 
+                         incoming().status == 'onsite' && 
+                         isValidActionLog(incoming().checkIn)) ||
+                        // Action: Check-Out
+                        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'checkOut']) && 
+                         incoming().status == 'offsite' && 
+                         isValidActionLog(incoming().checkOut))
+                      ) && 
+                      incoming().month == existing().month; // month is immutable
+    }
+
+    match /driveRecords/{monthId}/issues/{issueId} {
+      // Relational check: must have access to parent month
+      allow read: if isSignedIn();
+      
+      allow create: if isEmailVerified() && 
+                      isValidId(monthId) && 
+                      isValidId(issueId) && 
+                      isValidIssue(incoming()) &&
+                      exists(/databases/$(database)/documents/driveRecords/$(monthId));
+                      
+      allow update, delete: if false; // Issues are log-only for integrity
+    }
+  }
+}

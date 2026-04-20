@@ -1,0 +1,6 @@
+{
+  "name": "Backup Drive Security Tracker",
+  "description": "A critical tool for managing offsite backup hard drive rotations, including automated reminders, check-in/out registers with signatures, and issue logging.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
