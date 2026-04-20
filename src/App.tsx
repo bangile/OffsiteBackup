@@ -34,7 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { SignaturePad } from './components/SignaturePad';
 import { DriveRecord, ActionLog, Issue, AppConfig } from './types';
 import { cn } from './lib/utils';
-import { auth, db, signInWithGoogle } from './lib/firebase';
+import { auth, db, signInWithGoogle, signInWithGoogleRedirect, getRedirectResult } from './lib/firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { 
@@ -53,6 +53,7 @@ export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAuthHelper, setShowAuthHelper] = useState(false);
   const [driveRecord, setDriveRecord] = useState<DriveRecord | null>(null);
   const [monthIssues, setMonthIssues] = useState<Issue[]>([]);
   
@@ -65,15 +66,25 @@ export default function App() {
       await signInWithGoogle();
     } catch (error: any) {
       console.error("Auth Error:", error);
-      if (error.code === 'auth/unauthorized-domain') {
-        toast.error("Domain unauthorized. Please add this URL to your Firebase Console under Auth > Settings > Authorized Domains.");
+      if (error.code === 'auth/unauthorized-domain' || error.code === 'auth/popup-closed-by-user') {
+        setShowAuthHelper(true);
+        toast.error("Authentication Blocked", {
+          description: "See the connection guide on the login screen.",
+          duration: 10000
+        });
       } else if (error.code === 'auth/popup-blocked') {
-        toast.error("Popup blocked. Please allow popups for this site.");
-      } else if (error.code === 'auth/popup-closed-by-user') {
-        toast.info("Sign-in cancelled.");
+        toast.error("Popup blocked. Please allow popups or use Redirect method.");
       } else {
         toast.error("Authentication failed: " + error.message);
       }
+    }
+  };
+
+  const handleSignInRedirect = async () => {
+    try {
+      await signInWithGoogleRedirect();
+    } catch (error: any) {
+      toast.error("Redirect Auth Failed: " + error.message);
     }
   };
 
@@ -82,7 +93,20 @@ export default function App() {
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      if (!u) setLoading(false);
+      if (!u) {
+        // Only stop loading if we're not waiting for a redirect result
+        getRedirectResult(auth).then((result) => {
+          if (result) {
+            setUser(result.user);
+          }
+          setLoading(false);
+        }).catch((err) => {
+          console.error("Redirect error", err);
+          setLoading(false);
+        });
+      } else {
+        setLoading(false);
+      }
     });
 
     fetchConfig();
@@ -220,9 +244,39 @@ export default function App() {
                 <h1 className="text-xl font-semibold tracking-tight text-zinc-900">VaultGuard Access</h1>
                 <p className="text-xs text-zinc-500 leading-relaxed uppercase tracking-widest font-bold">Authorized Personnel Only</p>
              </div>
-             <Button onClick={handleSignIn} className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-medium rounded h-11">
-                Authenticate with Google
-             </Button>
+             <div className="w-full space-y-3">
+               <Button onClick={handleSignIn} className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-medium rounded h-11">
+                  Connect with Google
+               </Button>
+               <Button onClick={handleSignInRedirect} variant="outline" className="w-full border-zinc-200 text-zinc-500 font-medium rounded h-11 text-xs">
+                  Alternative: Sign in with Redirect
+               </Button>
+             </div>
+
+             {showAuthHelper && (
+               <div className="pt-6 border-t border-zinc-100 w-full text-left animate-in fade-in slide-in-from-top-2 duration-500">
+                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mb-3 flex items-center gap-2">
+                   <AlertTriangle className="w-3 h-3 text-amber-500" />
+                   Connection Troubleshooter
+                 </h4>
+                 <div className="space-y-4 bg-zinc-50 p-4 rounded-lg border border-zinc-100">
+                   <p className="text-[11px] text-zinc-600 leading-normal">
+                     If the popup closed instantly, you MUST authorize these domains in your <strong>Firebase Console</strong> (Settings &gt; Authorized Domains):
+                   </p>
+                   <div className="space-y-1.5">
+                     <div className="bg-white p-2 rounded border border-zinc-200 font-mono text-[9px] break-all select-all">
+                       ais-dev-hxexaimr6vviqoxsnv4sto-756951329447.europe-west2.run.app
+                     </div>
+                     <div className="bg-white p-2 rounded border border-zinc-200 font-mono text-[9px] break-all select-all">
+                       ais-pre-hxexaimr6vviqoxsnv4sto-756951329447.europe-west2.run.app
+                     </div>
+                   </div>
+                   <p className="text-[10px] text-zinc-400 italic">
+                     Authentication fails in this environment until the exact URL is whitelisted.
+                   </p>
+                 </div>
+               </div>
+             )}
           </div>
         </Card>
       </div>
